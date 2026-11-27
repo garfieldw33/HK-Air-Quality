@@ -1,0 +1,69 @@
+# Demo script: upload AQHI datasets to HDFS, process them with Apache Spark, compute station-level AQHI statistics, and save the results back to HDFS.
+
+
+# start-dfs.sh
+jps
+
+# (Optional: run once only)
+# hdfs dfs -mkdir -p /aqhi/raw
+# hdfs dfs -mkdir -p /aqhi/output
+# hdfs dfs -mkdir -p /aqhi/synthetic
+
+# Verify HDFS
+hdfs dfs -ls /aqhi
+
+# Upload AQHI datasets to HDFS
+cd /Users/kesiyun/Desktop/5488\ Big\ Data/5488Project\ Big\ Data/part1_hcs/part1_deliverables
+
+# Use -f so repeated demos don't fail with "File exists"
+hdfs dfs -put -f aqhi_clean_long.parquet /aqhi/raw/
+hdfs dfs -put -f aqhi_clean_daily.parquet /aqhi/raw/
+hdfs dfs -put -f aqhi_features.parquet /aqhi/raw/
+
+# Verify upload
+hdfs dfs -ls /aqhi/raw
+
+# Activate Python
+conda activate py312
+
+# Connect Spark to Hadoop
+export HADOOP_CONF_DIR=$HADOOP_HOME/etc/hadoop
+
+# Start Spark
+unset PYSPARK_PYTHON
+unset PYSPARK_DRIVER_PYTHON
+pyspark
+
+from pyspark.sql.functions import avg
+
+# Verify Spark sees HDFS
+sc._jsc.hadoopConfiguration().get("fs.defaultFS")
+
+# Read AQHI data from HDFS
+df = spark.read.parquet("hdfs://localhost:9001/aqhi/raw/aqhi_clean_long.parquet")
+
+print(df.count())
+df.printSchema()
+df.show(5)
+
+# Station-level AQHI ranking
+station_mean = (
+    df.groupBy("station")
+      .agg(avg("aqhi").alias("mean_aqhi"))
+      .orderBy("mean_aqhi", ascending=False)
+)
+
+station_mean.show()
+
+# Save results back to HDFS
+station_mean.write.mode("overwrite").csv(
+    "hdfs://localhost:9001/aqhi/output/station_mean"
+)
+
+exit()
+
+# Verify outputs
+hdfs dfs -ls /aqhi/output
+hdfs dfs -ls /aqhi/output/station_mean
+
+
